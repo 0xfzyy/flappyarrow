@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Cosmic Dodge</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(to bottom, #000428, #004e92);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        #gameCanvas {
+            border: 4px solid #00ffff;
+            border-radius: 15px;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+        }
+        #startScreen {
+            position: absolute;
+            text-align: center;
+            color: #00ffff;
+        }
+        #gameOver {
+            position: absolute;
+            display: none;
+            text-align: center;
+            color: #ff4500;
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>Cosmic Dodge</h1>
+        <p>Navigate your spaceship through asteroid fields!</p>
+        <p>Click or Press SPACE to start</p>
+    </div>
+    <div id="gameOver">
+        <h1>Game Over</h1>
+        <p id="finalScore">Score: 0</p>
+        <button id="restartBtn">Restart</button>
+    </div>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOver');
+        const finalScoreElement = document.getElementById('finalScore');
+        const restartBtn = document.getElementById('restartBtn');
+
+        // Game state
+        let gameState = {
+            isGameRunning: false,
+            score: 0,
+            highScore: 0,
+            difficulty: 1
+        };
+
+        // Spaceship class
+        class Spaceship {
+            constructor() {
+                this.x = 50;
+                this.y = canvas.height / 2;
+                this.width = 40;
+                this.height = 30;
+                this.velocity = 0;
+                this.gravity = 0.4;
+                this.lift = -8;
+                this.rotation = 0;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation * Math.PI / 180);
+                
+                // Spaceship body
+                ctx.fillStyle = '#00ffff';
+                ctx.beginPath();
+                ctx.moveTo(-20, -15);
+                ctx.lineTo(20, 0);
+                ctx.lineTo(-20, 15);
+                ctx.closePath();
+                ctx.fill();
+
+                // Exhaust flame
+                ctx.fillStyle = 'orange';
+                ctx.beginPath();
+                ctx.moveTo(-20, -5);
+                ctx.lineTo(-30, 0);
+                ctx.lineTo(-20, 5);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            update() {
+                this.velocity += this.gravity;
+                this.y += this.velocity;
+
+                // Rotation based on velocity
+                this.rotation = Math.min(Math.max(this.velocity * 3, -45), 45);
+            }
+
+            jump() {
+                this.velocity = this.lift;
+            }
+        }
+
+        // Asteroid class
+        class Asteroid {
+            constructor() {
+                this.width = 50;
+                this.height = Math.random() * (canvas.height - 200) + 100;
+                this.x = canvas.width;
+                this.speed = 3 + Math.random() * gameState.difficulty;
+                this.passed = false;
+                this.color = this.getRandomAsteroidColor();
+            }
+
+            getRandomAsteroidColor() {
+                const colors = ['#8B4513', '#A0522D', '#6B4423', '#5D4037'];
+                return colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, 0, this.width, this.height);
+                ctx.fillRect(this.x, this.height + 150, this.width, canvas.height - (this.height + 150));
+            }
+
+            update() {
+                this.x -= this.speed;
+            }
+        }
+
+        // Game objects
+        let spaceship;
+        let asteroids = [];
+        let stars = [];
+
+        // Star background
+        function createStars() {
+            stars = [];
+            for (let i = 0; i < 100; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    radius: Math.random() * 2,
+                    speed: Math.random() * 2
+                });
+            }
+        }
+
+        function drawStars() {
+            ctx.fillStyle = 'white';
+            stars.forEach(star => {
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Move stars
+                star.x -= star.speed;
+                if (star.x < 0) {
+                    star.x = canvas.width;
+                }
+            });
+        }
+
+        // Collision detection
+        function checkCollision(ship, asteroid) {
+            const shipHitbox = {
+                left: ship.x - 15,
+                right: ship.x + 15,
+                top: ship.y - 10,
+                bottom: ship.y + 10
+            };
+
+            const topObstacle = {
+                left: asteroid.x,
+                right: asteroid.x + asteroid.width,
+                top: 0,
+                bottom: asteroid.height
+            };
+
+            const bottomObstacle = {
+                left: asteroid.x,
+                right: asteroid.x + asteroid.width,
+                top: asteroid.height + 150,
+                bottom: canvas.height
+            };
+
+            // Check collision with top obstacle
+            const topCollision = 
+                shipHitbox.right > topObstacle.left &&
+                shipHitbox.left < topObstacle.right &&
+                shipHitbox.bottom > topObstacle.top &&
+                shipHitbox.top < topObstacle.bottom;
+
+            // Check collision with bottom obstacle
+            const bottomCollision = 
+                shipHitbox.right > bottomObstacle.left &&
+                shipHitbox.left < bottomObstacle.right &&
+                shipHitbox.bottom > bottomObstacle.top &&
+                shipHitbox.top < bottomObstacle.bottom;
+
+            // Check out of bounds
+            const outOfBounds = 
+                shipHitbox.top <= 0 ||
+                shipHitbox.bottom >= canvas.height;
+
+            return topCollision || bottomCollision || outOfBounds;
+        }
+
+        // Game loop
+        function gameLoop() {
+            if (!gameState.isGameRunning) return;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw starry background
+            drawStars();
+
+            // Update and draw spaceship
+            spaceship.update();
+            spaceship.draw();
+
+            // Manage asteroids
+            if (asteroids.length === 0 || asteroids[asteroids.length - 1].x < canvas.width - 250) {
+                asteroids.push(new Asteroid());
+            }
+
+            // Update and draw asteroids
+            for (let i = asteroids.length - 1; i >= 0; i--) {
+                asteroids[i].update();
+                asteroids[i].draw();
+
+                // Score calculation
+                if (!asteroids[i].passed && asteroids[i].x + asteroids[i].width < spaceship.x) {
+                    gameState.score++;
+                    asteroids[i].passed = true;
+
+                    // Increase difficulty gradually
+                    if (gameState.score % 5 === 0) {
+                        gameState.difficulty += 0.5;
+                    }
+                }
+
+                // Remove off-screen asteroids
+                if (asteroids[i].x + asteroids[i].width < 0) {
+                    asteroids.splice(i, 1);
+                }
+
+                // Collision detection
+                if (checkCollision(spaceship, asteroids[i])) {
+                    endGame();
+                    return;
+                }
+            }
+
+            // Game over if ship goes out of bounds
+            if (spaceship.y + spaceship.height / 2 > canvas.height || spaceship.y - spaceship.height / 2 < 0) {
+                endGame();
+                return;
+            }
+
+            // Draw score
+            ctx.fillStyle = '#00ffff';
+            ctx.font = '24px Arial';
+            ctx.fillText(`Score: ${gameState.score}`, 20, 40);
+
+            // Continue game loop
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start game
+        function startGame() {
+            gameState.isGameRunning = true;
+            gameState.score = 0;
+            gameState.difficulty = 1;
+            spaceship = new Spaceship();
+            asteroids = [];
+            createStars();
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            gameLoop();
+        }
+
+        // End game
+        function endGame() {
+            gameState.isGameRunning = false;
+            gameState.highScore = Math.max(gameState.score, gameState.highScore);
+            finalScoreElement.textContent = `Score: ${gameState.score}\nHigh Score: ${gameState.highScore}`;
+            gameOverScreen.style.display = 'block';
+        }
+
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                if (!gameState.isGameRunning) {
+                    startGame();
+                } else {
+                    spaceship.jump();
+                }
+                e.preventDefault();
+            }
+        });
+
+        canvas.addEventListener('click', () => {
+            if (!gameState.isGameRunning) {
+                startGame();
+            } else {
+                spaceship.jump();
+            }
+        });
+
+        restartBtn.addEventListener('click', startGame);
+
+        // Initial star background
+        createStars();
+    </script>
+</body>
+</html>
